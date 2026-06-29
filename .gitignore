@@ -18,3 +18,10 @@ traces/
 # Ruff / mypy caches
 .ruff_cache/
 .mypy_cache/
+
+# Virtual environments
+venv/
+
+# Editor / tool scratch files
+*.un~
+.playwright-mcp/

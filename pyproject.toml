@@ -15,6 +15,10 @@ dependencies = [
     "wmi>=1.5.1; sys_platform=='win32'",
     "pydantic>=2.7.0",
     "rich>=13.7.0",
+    "python-dotenv>=1.0.0",
+    "PyQt6>=6.7.0",
+    "qasync>=0.27.0",
+    "pygments>=2.18.0",
 ]
 
 [project.optional-dependencies]

@@ -1,7 +1,103 @@
 # windowsOS-coworker — Developing Status
 
 > Date: 2026-06-29
-> Phase: Phase 1 ✅ Complete | Phase 2 ✅ Complete | Phase 2.1 — Agent Self-Awareness ✅ Complete
+> Phase: Phase 1 ✅ Complete | Phase 2 ✅ Complete | Phase 2.1 ✅ Complete | Phase 3 ✅ Complete | Phase 3 GUI Polish ✅ Complete
+
+---
+
+## Phase 3 — GUI Polish / Bug Fixes (2026-06-29) ✅ Complete
+
+### Issues found (from live smoke-test screenshot)
+
+Four visual defects were visible when running `python gui.py` for the first time:
+
+1. **Assistant bubble text cut off** — only one line visible despite long response
+2. **User bubble had no background** — `#EBF3FF` pill shape invisible, text appeared unstyled
+3. **Header subtitle truncated** — "Session …" clipped to just a few characters
+4. **Red divider spanned full window width** — ran edge-to-edge instead of aligning with message text
+
+### Root causes & fixes
+
+| Issue | Root Cause | Fix |
+|---|---|---|
+| Bubble text cut off | `QTextEdit.document().size().height()` measured before Qt layout pass (no width assigned yet) → always 1-line height; `setFixedHeight` locked it permanently | Replaced `QTextEdit` with `_AutoResizeBrowser(QTextBrowser)` that connects to `documentSizeChanged` signal — height recalculated *after* real layout pass |
+| User bubble unstyled | `QTextEdit` silently ignores `border-radius`, `padding`, `background-color` from QSS (viewport architecture) | Replaced with `QLabel(wordWrap=True)` which fully honours all QSS properties |
+| Header subtitle truncated | `addStretch()` between title and subtitle pushed subtitle to zero remaining space | Removed stretch; title uses `stretch=1`, subtitle sits naturally to the right |
+| Divider full-width | Divider `QWidget` added directly to zero-margin `QVBoxLayout` — Qt stretches it to container width | Replaced with `_make_divider()` helper that wraps line in `QHBoxLayout` with 42 px left inset (= avatar 32 px + spacing 10 px) |
+| Theme still flat / grey | Original Doubao palette was light & flat; user asked for “立体” (3D) blue theme | Rebuilt `ui/styles/theme.py` + `main.qss` with deep navy background, layered panels, glowing accent buttons, inset cards, and blue gradients |
+
+### Files changed
+
+| File | Lines (before → after) | Change |
+|---|---|---|
+| `ui/widgets/message_bubble.py` | 313 → 335 | `QTextEdit` → `QLabel` (user) + `_AutoResizeBrowser` (assistant); added `_AutoResizeBrowser` class with `documentSizeChanged` auto-resize |
+| `ui/widgets/chat_area.py` | 312 → 334 | Added `_make_divider()` helper; fixed header layout (stretch=1 on title, removed addStretch); added `QSizePolicy` import |
+| `ui/styles/main.qss` | 373 → 381 | Added `#AssistantBubble QAbstractScrollArea` rule to make viewport background transparent so border-radius shows through |
+
+### Test result: **56/56 pass** (unchanged)
+
+---
+
+## Phase 3 — Desktop GUI (2026-06-29) ✅ Complete
+
+### What was built
+
+**Full PyQt6 GUI — 2082 lines across 15 files (14 UI + 1 test helper), all P3.1–P3.5 complete.**
+
+**New entry point:** `gui.py` (31 lines) — `python gui.py` launches the GUI mode.
+
+**New `ui/` package:**
+
+| File | Lines | Purpose |
+|---|---|---|
+| `ui/app.py` | 55 | `QApplication` init + main window startup |
+| `ui/main_window.py` | 188 | `QMainWindow` — left/right split layout, session management, welcome screen |
+| `ui/worker.py` | 76 | `QThread` worker — runs `Runner.run()` in background thread, pushes results via `pyqtSignal` |
+| `ui/bridge.py` | 77 | SDK init + monkey-patches `core.approval.request_approval` with GUI dialog at startup |
+| `ui/widgets/message_bubble.py` | 335 | User/assistant chat bubbles — `QLabel` (user) + `_AutoResizeBrowser` (assistant), Markdown-to-HTML, Pygments code highlighting, typewriter streaming |
+| `ui/widgets/input_bar.py` | 153 | Multi-line input, Enter to send, Shift+Enter newline, quick-action chips, send/stop toggle |
+| `ui/widgets/chat_area.py` | 334 | Scrollable message area, welcome screen, inset turn dividers, deferred scroll-to-bottom |
+| `ui/widgets/sidebar.py` | 186 | History list (from `memory_store`), title-text search filter, new-chat button, session switching |
+| `ui/widgets/approval_dialog.py` | 153 | MEDIUM (yellow) and HIGH (red, type-to-confirm) GUI approval dialogs |
+| `ui/widgets/thinking_indicator.py` | 48 | Animated "thinking…" dots indicator |
+| `ui/styles/theme.py` | 90 | Deep Blue 3D palette — layered backgrounds, accent colours, spacing |
+| `ui/styles/main.qss` | 381 | Qt stylesheet — deep blue gradients, glowing buttons, cards/shadows |
+
+**New test helper:** `tests/skills/conftest.py` (27 lines) — `raw()` unwraps `@function_tool` objects for unit testing.
+
+**Dependencies added to `requirements.txt` and `pyproject.toml`:** `PyQt6>=6.7.0`, `qasync>=0.27.0`, `pygments>=2.18.0`
+
+### Key design decisions
+
+- GUI uses the same `core/`, `agents/`, `skills/` layers — zero duplication with CLI
+- `ui/bridge.init_sdk()` monkey-patches `core.approval.request_approval` so all tool approval gates transparently show the GUI dialog instead of a Rich CLI prompt — no changes needed to orchestrator or skill files
+- `AgentWorker` (QThread) runs `Runner.run()` off the main thread; results returned via `pyqtSignal`
+- Markdown rendered via `_md_to_html` + Pygments; scroll-to-bottom deferred with `QTimer.singleShot(0, …)` so Qt reflows first
+- `python main.py` → CLI unchanged; `python gui.py` → GUI; both share the same DB and agent layer
+
+### P3 Iteration Status
+
+| Iteration | Status | Milestone |
+|---|---|---|
+| **P3.1** — Skeleton window: main_window, QSS theme, gui.py entry | ✅ Complete | `python gui.py` opens window |
+| **P3.2** — Message bubbles + input bar + send/receive flow | ✅ Complete | Can send messages + see replies |
+| **P3.3** — Sidebar: history list, new chat, session switching | ✅ Complete | Can switch/search history |
+| **P3.4** — Markdown rendering + code highlighting + typewriter effect | ✅ Complete | Formatted messages display |
+| **P3.5** — Approval dialog + quick-action buttons + UI polish | ✅ Complete | Full CLI replacement |
+| Update `requirements.txt` and `pyproject.toml` | ✅ Complete | — |
+
+### Bugs fixed during completion
+
+| Bug | Fix |
+|---|---|
+| `finish_assistant_message` — streaming bubble not re-rendered with final text | Added `MessageBubble.set_text()`; `finish_assistant_message` calls it with `full_text` |
+| `clear_messages` — divider `QWidget`s left in layout on session switch | Rewrote to drain all layout items except the welcome screen |
+| Scroll-to-bottom fires before Qt reflows new widget | Changed to `QTimer.singleShot(0, ...)` |
+| Sidebar search always empty — searched `toolTip()` which was never set | `_SessionItem` now stores `_title_text`; `_filter_list` searches it |
+| GUI approval gate defined but never wired — CLI prompts still fired in GUI | `bridge.init_sdk()` monkey-patches `core.approval.request_approval` at startup |
+| 11 pre-existing skill tests failing — `@function_tool` wraps callables, not plain functions | Added `tests/skills/conftest.py:raw()`; updated all 3 skill test files |
+
+### Test result: **56/56 pass**
 
 ---
 
@@ -43,7 +139,7 @@ No API key required — all tests run offline.
 | `test_facts_persist_across_sessions` | Fact from session A visible in session B |
 | `test_stats_reflect_real_conversation` | `get_stats()` counts match exactly what was written |
 
-Test result: **45/45 pass** (all tests across the project)
+Test result: **56/56 pass** (all tests across the project, including 11 previously-failing skill tests now fixed)
 
 ---
 
@@ -218,11 +314,12 @@ All tools return `{"status": "ok"|"error", "message": ...}`. All decorated with 
 
 ---
 
-## Full File Tree (64 Python files)
+## Full File Tree (79 Python files + 1 QSS)
 
 ```
 windowsOS-coworker/
 ├── main.py
+├── gui.py                                ← NEW (Phase 3) GUI entry point
 ├── config.py
 ├── pyproject.toml
 ├── requirements.txt
@@ -285,12 +382,31 @@ windowsOS-coworker/
 │   ├── agents/
 │   │   └── test_orchestrator_memory.py ← NEW (Phase 2.1)
 │   └── skills/
+│       ├── conftest.py               ← NEW (Phase 3) raw() FunctionTool unwrapper
 │       ├── test_disk.py
 │       ├── test_memory.py
 │       └── test_process.py
 │
 ├── sessions/          (runtime — SQLite memory.db lives here)
 ├── traces/            (runtime — trace output)
+├── ui/                                   ← NEW (Phase 3) GUI package
+│   ├── __init__.py
+│   ├── app.py
+│   ├── main_window.py
+│   ├── worker.py
+│   ├── bridge.py
+│   ├── widgets/
+│   │   ├── __init__.py
+│   │   ├── message_bubble.py
+│   │   ├── input_bar.py
+│   │   ├── chat_area.py
+│   │   ├── sidebar.py
+│   │   ├── approval_dialog.py
+│   │   └── thinking_indicator.py
+│   └── styles/
+│       ├── __init__.py
+│       ├── theme.py
+│       └── main.qss
 └── init/
     └── copilot-cowork-overview.md
 ```
@@ -300,14 +416,17 @@ windowsOS-coworker/
 ## How to Run
 
 ```bash
-# Install dependencies (openai-agents must be installed)
+# Install dependencies
 pip install -r requirements.txt
 
-# Credentials are loaded automatically from .env — no manual set needed
+# Credentials loaded automatically from .env
 # .env contains: OPENAI_API_KEY, OPENAI_BASE_URL, AGENT_MODEL
 
-# Start the app
+# CLI mode (original)
 python main.py
+
+# GUI mode (Phase 3)
+python gui.py
 ```
 
 ### In-app commands
@@ -350,5 +469,6 @@ pytest tests/core/test_risk.py::test_risk_enum_values
 | **App running** | ✅ Verified | `python main.py` works end-to-end with DeepSeek; all 15 skill agents confirmed importable |
 | **Phase 2 — SQLite Memory** | ✅ Complete | `memory_store.py` (sessions + messages + facts), persistent turn logging, 5 new slash commands, 19 new tests |
 | **Phase 2.1 — Agent Self-Awareness** | ✅ Complete | Orchestrator prompt updated with memory self-knowledge; 9 new offline tests confirming prompt content and DB round-trips |
-| **Phase 3 — Desktop UI** | ⬜ Pending | Rich desktop chat interface, approval cards, audit viewer, status dashboard |
+| **Phase 3 — Desktop GUI** | ✅ Complete | Full PyQt6 GUI — all P3.1–P3.5 delivered; 56/56 tests passing |
+| **Phase 3 Polish** | ✅ Complete | 4 visual bugs fixed post smoke-test: bubble height, bubble styling, header subtitle, divider width |
 | **Phase 4 — Advanced** | ⬜ Pending | Scheduled prompts, proactive alerts, custom plugins, multi-machine support |

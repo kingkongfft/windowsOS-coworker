@@ -25,6 +25,10 @@ SESSIONS_DIR: Path = BASE_DIR / "sessions"
 TRACES_DIR: Path = BASE_DIR / "traces"
 AUDIT_LOG_PATH: Path = BASE_DIR / "audit.jsonl"
 
+# SQLite long-term memory database (stored inside sessions/ so it is
+# covered by the existing .gitignore rule for that directory).
+MEMORY_DB_PATH: Path = SESSIONS_DIR / "memory.db"
+
 # Ensure runtime directories exist
 SESSIONS_DIR.mkdir(exist_ok=True)
 TRACES_DIR.mkdir(exist_ok=True)

@@ -1,7 +1,134 @@
 # windowsOS-coworker — Developing Status
 
 > Date: 2026-06-29
-> Phase: Phase 1 — Foundation (MVP) **Complete** + App running ✅
+> Phase: Phase 1 ✅ Complete | Phase 2 ✅ Complete | Phase 2.1 — Agent Self-Awareness ✅ Complete
+
+---
+
+## Phase 2.1 — Agent Self-Awareness of Memory (2026-06-29) ✅ Complete
+
+### Problem
+
+The agent had no knowledge that the SQLite memory infrastructure existed. When asked
+"where is your memory stored?" or "do you remember me?", it deflected with generic
+"I'm stateless" answers — factually wrong and unhelpful.
+
+### Root cause
+
+The orchestrator system prompt contained zero information about `memory_store.py`, the
+DB path, or the slash commands. The LLM can only know what is in its prompt.
+
+### Fix — `agents/orchestrator.py`
+
+Added an "About yourself and your memory" section to `ORCHESTRATOR_SYSTEM_PROMPT`:
+
+- States the agent has persistent SQLite memory at `sessions/memory.db`
+- Describes all 3 tables (sessions, messages, facts) and what each stores
+- Lists all 4 memory slash commands with descriptions (`/history`, `/memory`, `/sessions`, `/stats`)
+- Explicitly instructs the agent to answer memory questions accurately instead of deflecting
+
+### New test file — `tests/agents/test_orchestrator_memory.py` (9 tests, all passing)
+
+No API key required — all tests run offline.
+
+| Test | What it proves |
+|---|---|
+| `test_prompt_mentions_sqlite_db` | Prompt contains "sqlite" or "memory.db" |
+| `test_prompt_mentions_sessions_db_path` | Exact path `sessions/memory.db` is in the prompt |
+| `test_prompt_mentions_memory_slash_commands` | All 4 slash commands listed in prompt |
+| `test_prompt_instructs_accurate_memory_answers` | "answer accurately" instruction present |
+| `test_prompt_describes_three_tables` | All 3 table names in prompt |
+| `test_conversation_round_trip` | 4-turn conversation saved and retrieved correctly |
+| `test_session_survives_reconnect` | Data survives DB close + reopen (simulates restart) |
+| `test_facts_persist_across_sessions` | Fact from session A visible in session B |
+| `test_stats_reflect_real_conversation` | `get_stats()` counts match exactly what was written |
+
+Test result: **45/45 pass** (all tests across the project)
+
+---
+
+## Phase 2 — SQLite Long-Term Memory (2026-06-29) ✅ Complete
+
+### What was built
+
+**`core/memory_store.py`** (new — 438 lines, stdlib `sqlite3`, no new dependencies)
+
+Three-table schema stored at `sessions/memory.db`:
+
+| Table | Purpose |
+|---|---|
+| `sessions` | One row per chat session — id, started_at, ended_at, model, summary |
+| `messages` | Every user/assistant turn — FK → session, role, content, timestamp |
+| `facts` | Persistent key/value facts that survive across all sessions — key, value, category, source, timestamps |
+
+Key public API:
+
+| Function | Description |
+|---|---|
+| `create_session(id, model)` | Register session start |
+| `end_session(id, summary)` | Mark session ended |
+| `list_sessions(limit)` | Recent sessions, newest first |
+| `save_message(session_id, role, content)` | Persist a single turn |
+| `save_messages(session_id, messages)` | Bulk-persist a list of turns |
+| `load_session_messages(session_id)` | Replay full history for a session |
+| `load_recent_messages(limit, session_id)` | Last N turns (cross-session or per-session) |
+| `upsert_fact(key, value, category, source)` | Insert or update a persistent fact |
+| `get_fact(key)` | Retrieve one fact by key |
+| `list_facts(category)` | All facts, optionally filtered by category |
+| `delete_fact(key)` | Remove a fact |
+| `build_memory_context(session_id)` | Compact summary for injecting into agent prompts |
+| `get_stats()` | Total sessions / messages / facts counts |
+| `close()` | Graceful DB shutdown |
+
+Implementation details:
+- WAL journal mode — concurrent reads while writing
+- `PRAGMA foreign_keys=ON` — cascading deletes if a session is removed
+- Thread-safe via module-level `threading.Lock`
+- Connection lazily initialised on first use, closed in `finally` block on app exit
+
+**`config.py`** — added `MEMORY_DB_PATH = SESSIONS_DIR / "memory.db"`
+
+**`main.py`** — wired in persistent memory:
+- `create_session()` called at startup; `end_session()` called in `finally` (survives crashes)
+- Every user turn saved to DB before sending to the agent
+- Every assistant response saved to DB after receiving
+- 5 new slash commands added:
+
+| Command | Description |
+|---|---|
+| `/history [n]` | Show last n messages from current session (default 10) |
+| `/memory` | Show all persistent facts in a Rich table |
+| `/sessions` | List 10 most recent sessions |
+| `/stats` | Memory DB stats (counts + file path) |
+| `/audit` | (existing) Last 20 audit log entries |
+| `/clear` | (existing) Clear in-memory history; DB records preserved |
+| `/help` | (updated) All commands |
+
+**`tests/core/test_memory_store.py`** (new — 19 tests, all passing)
+
+| Test | What it covers |
+|---|---|
+| `test_schema_created_on_first_use` | Tables exist after first DB access |
+| `test_create_session_persists` | Session row written with correct fields |
+| `test_create_session_idempotent` | Duplicate create does not raise |
+| `test_end_session_updates_ended_at` | `ended_at` and `summary` set correctly |
+| `test_list_sessions_newest_first` | Correct sort order |
+| `test_save_and_load_messages` | Round-trip single messages |
+| `test_save_messages_bulk` | Bulk insert returns correct count and order |
+| `test_save_messages_skips_invalid_roles` | Bad roles silently dropped |
+| `test_load_recent_messages_limit` | `limit` param respected |
+| `test_load_session_messages_empty` | Empty list for new session |
+| `test_upsert_and_get_fact` | Fact round-trip |
+| `test_upsert_fact_updates_existing` | Second upsert overwrites value |
+| `test_get_fact_missing_returns_none` | Missing key → `None` |
+| `test_list_facts_all` | All facts returned |
+| `test_list_facts_by_category` | Category filter works |
+| `test_delete_fact` | Returns `True` on delete, `False` on missing |
+| `test_build_memory_context_empty` | Empty string when nothing stored |
+| `test_build_memory_context_with_data` | Facts + messages appear in output |
+| `test_get_stats_counts` | Correct counts after inserts |
+
+Test result: **36/36 pass** (all core tests)
 
 ---
 
@@ -39,6 +166,7 @@
 | `powershell.py` | `run_ps()` — safe PowerShell wrapper, never shell-string interpolation, raises typed exceptions |
 | `audit_log.py` | Append-only `.jsonl` audit trail — `log_tool_call`, `log_tool_result`, `log_session_start`, `tail()` |
 | `approval.py` | Rich CLI approval gate — auto for LOW, one-click for MEDIUM, explicit type-to-confirm for HIGH |
+| `memory_store.py` | SQLite long-term memory — sessions, messages, facts tables; thread-safe; WAL mode |
 
 ### `skills/` — 15 skill tool modules (100+ `@function_tool` functions)
 
@@ -70,7 +198,9 @@ All tools return `{"status": "ok"|"error", "message": ...}`. All decorated with 
 ### `main.py`
 
 - Async Rich CLI loop with conversation history
-- `/audit`, `/clear`, `/help` slash commands
+- Every turn persisted to SQLite in real time (no data loss on crash)
+- Session lifecycle managed with `create_session()` / `end_session()` in `finally`
+- `/audit`, `/clear`, `/help`, `/history`, `/memory`, `/sessions`, `/stats` slash commands
 - `Runner.run()` with full message history passed on each turn
 
 ### `tests/`
@@ -80,13 +210,15 @@ All tools return `{"status": "ok"|"error", "message": ...}`. All decorated with 
 | `tests/core/test_risk.py` | Risk enum, `@risk` decorator, `get_risk` default |
 | `tests/core/test_audit_log.py` | All log functions, `tail()`, thread-safe writes |
 | `tests/core/test_powershell.py` | `run_ps` success, flags, errors, elevation, output stripping |
+| `tests/core/test_memory_store.py` | All 3 tables — session CRUD, message CRUD, facts CRUD, context builder, stats (19 tests) |
+| `tests/agents/test_orchestrator_memory.py` | Prompt self-awareness (5 tests) + memory round-trip, restart, cross-session facts, stats (4 tests) |
 | `tests/skills/test_disk.py` | `get_disk_usage`, `list_partitions` (mocked psutil) |
 | `tests/skills/test_memory.py` | `get_memory_usage`, `list_top_memory_processes` (mocked psutil) |
 | `tests/skills/test_process.py` | `list_processes`, `find_process_by_name`, `kill_process` (mocked psutil) |
 
 ---
 
-## Full File Tree (62 Python files)
+## Full File Tree (64 Python files)
 
 ```
 windowsOS-coworker/
@@ -104,7 +236,8 @@ windowsOS-coworker/
 │   ├── risk.py
 │   ├── powershell.py
 │   ├── audit_log.py
-│   └── approval.py
+│   ├── approval.py
+│   └── memory_store.py               ← NEW (Phase 2)
 │
 ├── skills/
 │   ├── __init__.py
@@ -126,7 +259,7 @@ windowsOS-coworker/
 │
 ├── agents/
 │   ├── __init__.py
-│   ├── orchestrator.py
+│   ├── orchestrator.py               ← UPDATED (Phase 2.1 — self-awareness prompt)
 │   ├── app_skill_agent.py
 │   ├── patch_skill_agent.py
 │   ├── disk_skill_agent.py
@@ -147,13 +280,16 @@ windowsOS-coworker/
 │   ├── core/
 │   │   ├── test_risk.py
 │   │   ├── test_audit_log.py
-│   │   └── test_powershell.py
+│   │   ├── test_powershell.py
+│   │   └── test_memory_store.py      ← NEW (Phase 2)
+│   ├── agents/
+│   │   └── test_orchestrator_memory.py ← NEW (Phase 2.1)
 │   └── skills/
 │       ├── test_disk.py
 │       ├── test_memory.py
 │       └── test_process.py
 │
-├── sessions/          (runtime — SQLite session storage)
+├── sessions/          (runtime — SQLite memory.db lives here)
 ├── traces/            (runtime — trace output)
 └── init/
     └── copilot-cowork-overview.md
@@ -179,7 +315,11 @@ python main.py
 | Command | Description |
 |---|---|
 | `/audit` | Show last 20 audit log entries |
-| `/clear` | Clear conversation history |
+| `/clear` | Clear in-memory history (DB records preserved) |
+| `/history [n]` | Show last n messages from current session (default 10) |
+| `/memory` | Show all persistent facts |
+| `/sessions` | List 10 most recent sessions |
+| `/stats` | Memory DB stats + file path |
 | `/help` | Show available commands |
 | `exit` / `quit` | Exit the app |
 
@@ -208,6 +348,7 @@ pytest tests/core/test_risk.py::test_risk_enum_values
 | **Phase 1 — Foundation** | ✅ Complete | Core infra, all 15 skill tool modules, all agents, CLI loop, unit tests |
 | **Runtime fixes** | ✅ Complete | DeepSeek API wired, SDK conflicts resolved, clean exit, UTF-8 console, tracing disabled |
 | **App running** | ✅ Verified | `python main.py` works end-to-end with DeepSeek; all 15 skill agents confirmed importable |
-| **Phase 2 — Core Skills** | ⬜ Pending | Medium/high-risk flow end-to-end, session persistence, error retry logic |
+| **Phase 2 — SQLite Memory** | ✅ Complete | `memory_store.py` (sessions + messages + facts), persistent turn logging, 5 new slash commands, 19 new tests |
+| **Phase 2.1 — Agent Self-Awareness** | ✅ Complete | Orchestrator prompt updated with memory self-knowledge; 9 new offline tests confirming prompt content and DB round-trips |
 | **Phase 3 — Desktop UI** | ⬜ Pending | Rich desktop chat interface, approval cards, audit viewer, status dashboard |
 | **Phase 4 — Advanced** | ⬜ Pending | Scheduled prompts, proactive alerts, custom plugins, multi-machine support |

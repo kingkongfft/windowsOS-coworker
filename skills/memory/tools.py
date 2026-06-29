@@ -180,6 +180,32 @@ def release_standby_memory() -> dict[str, str]:
         return {"status": "error", "message": str(exc)}
 
 
+@risk(Risk.MEDIUM)
+@function_tool
+def clear_file_system_cache() -> dict[str, str]:
+    """Clear the Windows file system (standby) cache to free up RAM.
+
+    Triggers a memory flush via PowerShell's .NET GC and the Windows
+    memory management subsystem.  Does not terminate any processes.
+
+    Returns:
+        A dict with status and message.
+    """
+    try:
+        run_ps(
+            "Clear-RecycleBin -Force -ErrorAction SilentlyContinue; "
+            "[System.GC]::Collect(); "
+            "[System.GC]::WaitForPendingFinalizers(); "
+            "[System.GC]::Collect()"
+        )
+        return {
+            "status": "ok",
+            "message": "File system cache cleared successfully.",
+        }
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
 @risk(Risk.HIGH)
 @function_tool
 def set_paging_file_size(

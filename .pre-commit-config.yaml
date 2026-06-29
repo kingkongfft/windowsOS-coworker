@@ -1,0 +1,53 @@
+repos:
+  # ── All hooks run locally using the system Python (no virtualenv needed) ────
+  # This avoids the virtualenv/pip-cache issues on Windows Store Python.
+
+  - repo: local
+    hooks:
+
+      # 1. Block .env files (exact name match and variants like .env.local)
+      - id: block-env-files
+        name: "SECRET GUARD: block .env files"
+        language: python
+        entry: python .git-hooks/block_env_files.py
+        pass_filenames: true
+        types: [file]
+
+      # 2. Block files with secret-like names (fail = always blocked, no env needed)
+      - id: block-secret-filenames
+        name: "SECRET GUARD: block secret-named files"
+        language: fail
+        entry: "BLOCKED — secret/credential file detected. Remove with: git rm --cached <file>"
+        files: >-
+          (?x)(
+            secrets?\.(json|yaml|yml|toml|ini|cfg|conf|txt)$|
+            credentials?\.(json|yaml|yml|toml|ini|cfg|conf|txt)$|
+            .*api[_-]?key.*\.(json|yaml|yml|txt)$|
+            .*private[_-]?key.*\.(pem|key|p12|pfx)$
+          )
+
+      # 3. detect-secrets: scan file contents for high-entropy strings and
+      #    known secret patterns (API keys, tokens, connection strings, etc.)
+      - id: detect-secrets
+        name: "SECRET GUARD: scan for hardcoded secrets"
+        language: system
+        entry: python .git-hooks/scan_secrets.py
+        pass_filenames: true
+        exclude: >-
+          (?x)(
+            ^\.secrets\.baseline$|
+            ^requirements.*\.txt$|
+            ^pyproject\.toml$|
+            ^tests/.*\.py$|
+            ^\.pre-commit-config\.yaml$|
+            ^\.git-hooks/.*\.py$
+          )
+
+      # 4. Block PEM private keys (catch raw RSA/EC key files)
+      - id: detect-private-key
+        name: "SECRET GUARD: detect private key files"
+        language: python
+        entry: python .git-hooks/detect_private_key.py
+        pass_filenames: true
+        types: [file]
+        exclude: ^\.git-hooks/.*\.py$

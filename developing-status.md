@@ -1,7 +1,25 @@
 # windowsOS-coworker — Developing Status
 
 > Date: 2026-06-29
-> Phase: Phase 1 — Foundation (MVP) **Complete**
+> Phase: Phase 1 — Foundation (MVP) **Complete** + App running ✅
+
+---
+
+## Runtime fixes applied (2026-06-29)
+
+| Fix | File | Detail |
+|---|---|---|
+| DeepSeek API configured | `.env` (new) | `OPENAI_API_KEY`, `OPENAI_BASE_URL=https://api.deepseek.com`, `AGENT_MODEL=deepseek-chat` |
+| `.gitignore` added | `.gitignore` (new) | Protects `.env`, caches, runtime output from being committed |
+| dotenv override | `config.py` | `load_dotenv(..., override=True)` — ensures `.env` key wins over system-level proxy keys |
+| dotenv loading | `config.py` | Added `python-dotenv` load at startup; exposed `OPENAI_BASE_URL` config var |
+| SDK namespace conflict fixed | `agents/__init__.py` | Local `agents/` folder was shadowing the installed `openai-agents` SDK; bridge now loads SDK from site-packages and re-exports its full public API + sub-modules |
+| SDK API mode fixed | `main.py` | Set `chat_completions` mode + explicit `AsyncOpenAI` client — DeepSeek doesn't support the Responses API (was causing 404) |
+| SDK tracing disabled | `main.py` | `set_tracing_disabled(True)` called before orchestrator import — eliminates `[non-fatal] Tracing: request failed` noise |
+| Clean Ctrl+C exit | `main.py` | `KeyboardInterrupt` and `asyncio.CancelledError` caught at both loop and `main()` level — no more crash traceback on exit |
+| UTF-8 console | `main.py` | `sys.stdout` re-wrapped with `utf-8` encoding — fixes `UnicodeEncodeError` for box-drawing characters on Windows cp1252 terminals |
+| Missing tool added | `skills/memory/tools.py` | Implemented `clear_file_system_cache` (was referenced in `memory_skill_agent.py` but absent from tools module) |
+| SDK installed | — | `pip install openai-agents>=0.0.19` (`openai-agents` was missing from environment) |
 
 ---
 
@@ -10,7 +28,7 @@
 ### Project scaffolding
 - `pyproject.toml` — ruff, mypy, pytest config
 - `requirements.txt` — all dependencies
-- `config.py` — API key, model, paths, auto-approve flag
+- `config.py` — API key, model, paths, auto-approve flag; now loads `.env` via python-dotenv
 
 ### `core/` — infrastructure layer
 
@@ -146,11 +164,11 @@ windowsOS-coworker/
 ## How to Run
 
 ```bash
-# Install dependencies
+# Install dependencies (openai-agents must be installed)
 pip install -r requirements.txt
 
-# Set your OpenAI API key
-set OPENAI_API_KEY=sk-...
+# Credentials are loaded automatically from .env — no manual set needed
+# .env contains: OPENAI_API_KEY, OPENAI_BASE_URL, AGENT_MODEL
 
 # Start the app
 python main.py
@@ -188,6 +206,8 @@ pytest tests/core/test_risk.py::test_risk_enum_values
 | Phase | Status | Description |
 |---|---|---|
 | **Phase 1 — Foundation** | ✅ Complete | Core infra, all 15 skill tool modules, all agents, CLI loop, unit tests |
+| **Runtime fixes** | ✅ Complete | DeepSeek API wired, SDK conflicts resolved, clean exit, UTF-8 console, tracing disabled |
+| **App running** | ✅ Verified | `python main.py` works end-to-end with DeepSeek; all 15 skill agents confirmed importable |
 | **Phase 2 — Core Skills** | ⬜ Pending | Medium/high-risk flow end-to-end, session persistence, error retry logic |
 | **Phase 3 — Desktop UI** | ⬜ Pending | Rich desktop chat interface, approval cards, audit viewer, status dashboard |
 | **Phase 4 — Advanced** | ⬜ Pending | Scheduled prompts, proactive alerts, custom plugins, multi-machine support |

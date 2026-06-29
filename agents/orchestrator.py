@@ -10,6 +10,7 @@ from agents.diagnostics_skill_agent import diagnostics_skill_agent
 from agents.disk_skill_agent import disk_skill_agent
 from agents.envconfig_skill_agent import envconfig_skill_agent
 from agents.eventlog_skill_agent import eventlog_skill_agent
+from agents.files_skill_agent import files_skill_agent
 from agents.memory_skill_agent import memory_skill_agent
 from agents.network_skill_agent import network_skill_agent
 from agents.patch_skill_agent import patch_skill_agent
@@ -47,6 +48,7 @@ You have access to the following Skill Agents (delegate to them — never execut
 - EnvConfigSkillAgent: environment variables, PATH, Windows features
 - SecuritySkillAgent: Defender, firewall, BitLocker, audit policy
 - UserSkillAgent: local users, groups, permissions
+- FileSkillAgent: create, read, write, move, copy, delete files and directories
 
 Risk management:
 - LOW risk actions execute automatically — no approval needed.
@@ -81,5 +83,6 @@ orchestrator = Agent(
         handoff(envconfig_skill_agent),
         handoff(security_skill_agent),
         handoff(user_skill_agent),
+        handoff(files_skill_agent),
     ],
 )

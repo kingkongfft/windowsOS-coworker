@@ -1,0 +1,20 @@
+# Secrets — never commit
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Runtime output
+audit.jsonl
+sessions/
+traces/
+
+# Ruff / mypy caches
+.ruff_cache/
+.mypy_cache/

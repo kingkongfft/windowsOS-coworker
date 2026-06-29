@@ -3,10 +3,18 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+# Load .env from the project root, overriding any existing env vars.
+# This ensures the DeepSeek key takes precedence over system-level vars
+# (e.g. proxy keys set by the IDE/agent environment).
+load_dotenv(Path(__file__).parent / ".env", override=True)
+
 # ---------------------------------------------------------------------------
 # LLM / Agent
 # ---------------------------------------------------------------------------
 OPENAI_API_KEY: str = os.environ.get("OPENAI_API_KEY", "")
+OPENAI_BASE_URL: str = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
 AGENT_MODEL: str = os.environ.get("AGENT_MODEL", "gpt-4o")
 
 # ---------------------------------------------------------------------------

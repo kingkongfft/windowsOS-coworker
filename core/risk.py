@@ -32,6 +32,11 @@ def risk(level: Risk) -> Callable[[F], F]:
     The orchestrator reads ``fn.__risk_level__`` at runtime to decide whether
     to invoke the approval gate before calling the tool.
 
+    This decorator is order-safe: when applied *outside* ``@function_tool``
+    (i.e. ``@risk`` is written first in source), it detects that the wrapped
+    object is already a ``FunctionTool`` and stamps the attribute directly on
+    it without re-wrapping, preserving the SDK-recognised type.
+
     Usage::
 
         @risk(Risk.HIGH)
@@ -47,6 +52,14 @@ def risk(level: Risk) -> Callable[[F], F]:
     """
 
     def decorator(fn: F) -> F:
+        # If fn is already a FunctionTool (or any non-callable object such as
+        # an SDK tool wrapper), just stamp the attribute on it and return it
+        # as-is so the SDK still recognises it as a valid tool.
+        if not callable(fn) or type(fn).__name__ == "FunctionTool":
+            setattr(fn, _RISK_ATTR, level)
+            return fn
+
+        # Plain function — wrap normally.
         @functools.wraps(fn)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             return fn(*args, **kwargs)

@@ -4,15 +4,50 @@ import asyncio
 import sys
 import uuid
 
-from rich.console import Console
-from rich.markdown import Markdown
-from rich.panel import Panel
-from rich.text import Text
+# Force UTF-8 output on Windows to avoid cp1252 encoding errors with
+# box-drawing characters used by Rich.
+if sys.platform == "win32":
+    import io
 
-import config
-import core.audit_log as audit_log
-from agents import Runner
-from agents.orchestrator import orchestrator
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+
+# ── SDK configuration must happen before any agents are imported ──────────────
+# Import config first so .env is loaded and env vars are set before the SDK
+# reads them during its own module-level initialisation.
+import config  # noqa: E402
+
+from agents import (  # noqa: E402
+    Runner,
+    set_default_openai_api,
+    set_default_openai_client,
+    set_tracing_disabled,
+)
+from openai import AsyncOpenAI  # noqa: E402
+
+# DeepSeek only supports the Chat Completions API, not the Responses API.
+set_default_openai_api("chat_completions")
+set_default_openai_client(
+    AsyncOpenAI(
+        api_key=config.OPENAI_API_KEY,
+        base_url=config.OPENAI_BASE_URL,
+    ),
+    use_for_tracing=False,
+)
+
+# Disable tracing entirely — the tracing endpoint is OpenAI-specific and
+# unavailable on DeepSeek, which causes noisy timeout errors and a messy
+# crash on Ctrl+C when the tracing shutdown thread is still running.
+set_tracing_disabled(True)
+
+# ── remaining imports ─────────────────────────────────────────────────────────
+import core.audit_log as audit_log  # noqa: E402
+
+from agents.orchestrator import orchestrator  # noqa: E402
+from rich.console import Console  # noqa: E402
+from rich.markdown import Markdown  # noqa: E402
+from rich.panel import Panel  # noqa: E402
+from rich.text import Text  # noqa: E402
 
 console = Console()
 
@@ -102,6 +137,10 @@ async def chat_loop() -> None:
                     orchestrator,
                     input=history,
                 )
+            except asyncio.CancelledError:
+                # User hit Ctrl+C while the agent was thinking — exit cleanly.
+                console.print("\n[dim]Cancelled. Goodbye.[/dim]")
+                return
             except Exception as exc:
                 console.print(f"[bold red]Error:[/bold red] {exc}")
                 history.pop()  # remove failed user message
@@ -121,7 +160,12 @@ async def chat_loop() -> None:
 
 def main() -> None:
     """Entry point for windowsOS-coworker."""
-    asyncio.run(chat_loop())
+    try:
+        asyncio.run(chat_loop())
+    except KeyboardInterrupt:
+        # Swallow the KeyboardInterrupt that bubbles out of asyncio.run when
+        # Ctrl+C is pressed — prevents the ugly traceback on exit.
+        pass
 
 
 if __name__ == "__main__":
